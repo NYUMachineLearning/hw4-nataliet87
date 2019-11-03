@@ -1,8 +1,10 @@
 ---
-title: "Machine Learning 2019: Feature Selection"
+title: 'Machine Learning 2019: Feature Selection'
 author: "Sonali Narang"
-date: October 24, 2019
-output: pdf_document
+date: "October 24, 2019"
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +24,7 @@ library(caret)
 library(randomForest)
 library(mlbench)
 library(glmnet)
+library(corrplot)
 ```
 
 ## The Breast Cancer Dataset
@@ -59,7 +62,6 @@ BreastCancer_num[is.na(BreastCancer_num)] = 0
 correlation_matrix = cor(BreastCancer_num[,1:10])
 
 #visualize correlation matrix
-library(corrplot)
 corrplot(correlation_matrix, order = "hclust")
 
 #apply correlation filter of 0.7
@@ -75,6 +77,8 @@ Wrapper methods are a bit more computationally intensive since we will select fe
 The RFE function implements backwards selection of predictors based on predictor importance ranking. The predictors are ranked and the less important ones are sequentially eliminated prior to modeling. The goal is to find a subset of predictors that can be used to produce an accurate model.
 
 ```{r RFE}
+##  RECURSIVE FEATURE ELIMINATION
+
 data(BreastCancer)
 BreastCancer_num = transform(BreastCancer, Id = as.numeric(Id), 
                          Cl.thickness = as.numeric(Cl.thickness),
@@ -97,6 +101,10 @@ results = rfe(BreastCancer_num[,1:10], BreastCancer_num[,11], sizes = c(2,5,9), 
 
 results
 results$variables
+
+plot(results, type=c('g', 'o'))
+
+predictors(results)
 ```
 
 ## Feature Selection Using Embedded Methods: Lasso
@@ -104,12 +112,15 @@ results$variables
 Least Absolute Shrinkage and Selection Operator (LASSO) regression
 
 
-```{r Lasso}
+```{r}
+
+##  LASSO
+
 set.seed(24)
 
 #convert data
-x = x <- as.matrix(BreastCancer_num[,1:10])
-y = as.double(as.matrix(ifelse(BreastCancer_num[,11]=='benign', 0, 1))) 
+x <- as.matrix(BreastCancer_num[,1:10])
+y <- as.double(as.matrix(ifelse(BreastCancer_num[,11]=='benign', 0, 1))) 
 
 #fit Lasso model 
 cv.lasso <- cv.glmnet(x, y, family='binomial', alpha=1, parallel=TRUE, standardize=TRUE, type.measure='auc')
@@ -157,13 +168,106 @@ rfmodel = randomForest(Class ~ Id + Cl.thickness + Cell.size + Cell.shape + Marg
 importance(rfmodel)
 
 ```
+^^ larger change here indicates greater importance of the feature in classificiation
+
 
 
 
 ## Homework
 
-1. Compare the most important features from at least 2 different classes of feature selection methods covered in this tutorial with any reasonable machine learning dataset from mlbench. Do these feature selection methods provide similar results? 
 
-2. Attempt a feature selection method not covered in this tutorial (backward elimination, forward propogation, etc.)
+**Part I:**
+Compare the most important features from at least 2 different classes of feature selection methods covered in this tutorial with any reasonable machine learning dataset from mlbench. Do these feature selection methods provide similar results? 
+
+```{r}
+data(PimaIndiansDiabetes)
+head(PimaIndiansDiabetes)
+str(PimaIndiansDiabetes)
+PimaIndiansDiabetes[is.na(PimaIndiansDiabetes)] = 0
+```
+
+
+Method 1:
+```{r Lasso}
+
+## Feature Selection Using Embedded Methods: Lasso
+
+set.seed(15)
+
+#convert data
+x <- as.matrix(PimaIndiansDiabetes[,1:8])
+y <- as.double(as.matrix(ifelse(PimaIndiansDiabetes[,9]=='pos', 0, 1))) 
+
+#fit Lasso model 
+cv.lasso <- cv.glmnet(x, y, family='binomial', alpha=1, parallel=TRUE, standardize=TRUE, type.measure='auc')
+
+plot(cv.lasso)
+
+cat('Min Lambda: ', cv.lasso$lambda.min, '\n 1Sd Lambda: ', cv.lasso$lambda.1se)
+df_coef <- round(as.matrix(coef(cv.lasso, s=cv.lasso$lambda.min)), 2)
+
+# See all contributing variables
+df_coef[df_coef[, 1] != 0, ]
+```
+
+
+
+
+Method 2:
+```{r}
+## Feature Selection Using Embedded Methods: RandomForest
+
+train_size <- floor(0.75 * nrow(PimaIndiansDiabetes))
+set.seed(24)
+train_pos <- sample(seq_len(nrow(PimaIndiansDiabetes)), size = train_size)
+
+
+
+PimaIndiansDiabetes[is.na(PimaIndiansDiabetes)] = 0
+
+train_classification <- PimaIndiansDiabetes[train_pos, ]
+test_classification <- PimaIndiansDiabetes[-train_pos, ]
+
+#fit a model
+rfmodel = randomForest(diabetes ~ glucose + pregnant + pressure + triceps + insulin + mass + pedigree + age,
+                       data=train_classification,  importance = TRUE, oob.times = 15, confusion = TRUE)
+
+#rank features based on importance 
+importance(rfmodel)
+
+```
+
+
+These two approaches generated slightly different results, but not substantially so. And re-running the embedded feature selection would somewhat different important features. Both selected glucose and pregnancy as the most important two features (though in two different orders, and with differing levels of importance attributed), but later important features were ordered differently. 
+
+
+
+**Part II:**
+Attempt a feature selection method not covered in this tutorial (backward elimination, forward propogation, etc.)
+
+Used wrapper method: feature selection by simluated annealing. This approach tests the model on 
+random subsets of features to determine the best features on which to build the model
+```{r}
+ctrl <- safsControl(functions = treebagSA)
+```
+
+```{r}
+obj <- safs(x = PimaIndiansDiabetes[,1:8],
+            y = PimaIndiansDiabetes[,9],
+            iters = 100,
+            safsControl = ctrl)
+obj
+```
+
+
+
+```{r}
+# Plot performance over iterations:
+plot(obj) + theme_bw()
+```
+
+
+
+
 
 
